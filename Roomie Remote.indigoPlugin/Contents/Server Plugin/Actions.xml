@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<Actions>
+    <Action id="startActivity" deviceFilter="self.roomieRoom">
+        <Name>Start Activity</Name>
+        <CallbackMethod>start_activity</CallbackMethod>
+        <ConfigUI>
+            <Field id="activityUuid" type="menu">
+                <Label>Activity:</Label>
+                <List class="self" method="get_activity_list" dynamicReload="true"/>
+            </Field>
+            <Field id="delay" type="textfield"
+                   tooltip="Optional delay before the activity runs. The Roomie API requires at least 1.0 seconds; leave blank for none.">
+                <Label>Delay (seconds, optional, min 1.0):</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+
+    <Action id="powerOffRoom" deviceFilter="self.roomieRoom">
+        <Name>Power Off Room</Name>
+        <CallbackMethod>power_off_room</CallbackMethod>
+    </Action>
+
+    <Action id="pressButton" deviceFilter="self.roomieRoom">
+        <Name>Press Remote Button</Name>
+        <CallbackMethod>press_button</CallbackMethod>
+        <ConfigUI>
+            <Field id="button" type="menu">
+                <Label>Button:</Label>
+                <List class="self" method="get_button_list"/>
+            </Field>
+            <Field id="count" type="textfield" defaultValue="1"
+                   tooltip="Number of back-to-back taps (1-25). Useful for relative volume.">
+                <Label>Taps (1-25):</Label>
+            </Field>
+            <Field id="digits" type="textfield"
+                   tooltip="Channel digits; only used with the Channel button.">
+                <Label>Channel digits (optional):</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+
+    <Action id="runActivityRaw">
+        <Name>Run Activity by UUID</Name>
+        <CallbackMethod>run_activity_raw</CallbackMethod>
+        <ConfigUI>
+            <Field id="rawInfoLabel" type="label">
+                <Label>Runs any activity by its raw UUID, including activities in rooms without an Indigo device. Use the "Dump Rooms &amp; Activities to Log" menu item to find UUIDs. Toggle activities accept UUIDs with a "+"/"-" suffix, or use the toggle state menu.</Label>
+            </Field>
+            <Field id="activityUuid" type="textfield">
+                <Label>Activity UUID:</Label>
+            </Field>
+            <Field id="ts" type="menu" defaultValue="default">
+                <Label>Toggle state:</Label>
+                <List>
+                    <Option value="default">Default</Option>
+                    <Option value="on">On</Option>
+                    <Option value="off">Off</Option>
+                </List>
+            </Field>
+            <Field id="delay" type="textfield"
+                   tooltip="Optional delay before the activity runs. The Roomie API requires at least 1.0 seconds; leave blank for none.">
+                <Label>Delay (seconds, optional, min 1.0):</Label>
+            </Field>
+        </ConfigUI>
+    </Action>
+
+    <Action id="refreshStatus" deviceFilter="self.roomieRoom">
+        <Name>Refresh Status</Name>
+        <CallbackMethod>refresh_status</CallbackMethod>
+    </Action>
+</Actions>

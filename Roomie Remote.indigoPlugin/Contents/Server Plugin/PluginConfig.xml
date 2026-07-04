@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<PluginConfig>
+    <Field id="infoLabel" type="label">
+        <Label>Connects Indigo to Roomie Remote via its Local Network Control API. Requires Roomie Remote X 10.3 or later with "Local Network Control" enabled in Roomie's settings on the Primary Controller. The controller device must stay running with Roomie in the foreground (a dedicated always-on controller or an iPad in Guided Access / Single App Mode is recommended). A static IP or DHCP reservation for the controller is strongly recommended.</Label>
+    </Field>
+
+    <Field id="host" type="textfield">
+        <Label>Roomie Controller IP / hostname:</Label>
+    </Field>
+
+    <Field id="port" type="textfield" defaultValue="47147">
+        <Label>Port:</Label>
+    </Field>
+
+    <Field id="pollInterval" type="textfield" defaultValue="5"
+           tooltip="How often (in seconds) the plugin polls Roomie for room status. Minimum 2, maximum 300.">
+        <Label>Poll interval (seconds):</Label>
+    </Field>
+
+    <Field id="requestTimeout" type="textfield" defaultValue="5"
+           tooltip="Per-HTTP-request timeout in seconds (1-30).">
+        <Label>Request timeout (seconds):</Label>
+    </Field>
+
+    <Field id="autoCreateDevices" type="checkbox" defaultValue="true"
+           tooltip="When enabled, an Indigo device is created automatically for each Roomie room the first time it is seen. Devices you delete are not re-created (use the 'Create Devices for All Rooms' menu item for that).">
+        <Label>Automatically create Indigo devices for new Roomie rooms:</Label>
+    </Field>
+
+    <Field id="separator1" type="separator"/>
+
+    <Field id="log_level" type="menu" defaultValue="20">
+        <Label>Event Logging Level:</Label>
+        <List>
+            <Option value="5">Extra Debugging Messages</Option>
+            <Option value="10">Debugging Messages</Option>
+            <Option value="20">Informational Messages</Option>
+            <Option value="30">Warning Messages</Option>
+            <Option value="40">Error Messages</Option>
+            <Option value="50">Critical Errors Only</Option>
+        </List>
+    </Field>
+</PluginConfig>

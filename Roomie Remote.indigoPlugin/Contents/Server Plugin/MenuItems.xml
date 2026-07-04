@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<MenuItems>
+    <MenuItem id="testConnection">
+        <Name>Test Connection</Name>
+        <CallbackMethod>menu_test_connection</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="dumpRoomsActivities">
+        <Name>Dump Rooms &amp; Activities to Log</Name>
+        <CallbackMethod>menu_dump_rooms_activities</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="createRoomDevices">
+        <Name>Create Devices for All Rooms</Name>
+        <CallbackMethod>menu_create_room_devices</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="forceRefreshAll">
+        <Name>Force Refresh All</Name>
+        <CallbackMethod>menu_force_refresh_all</CallbackMethod>
+    </MenuItem>
+    <MenuItem id="toggleDebug">
+        <Name>Toggle Debug Logging</Name>
+        <CallbackMethod>menu_toggle_debug</CallbackMethod>
+    </MenuItem>
+</MenuItems>

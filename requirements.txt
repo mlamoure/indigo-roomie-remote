@@ -1,0 +1,6 @@
+# Development environment dependencies.
+# At runtime the plugin uses the `requests` bundled with Indigo's Python —
+# nothing is vendored into the plugin bundle.
+requests~=2.32
+pytest~=8.4
+black~=25.1
