@@ -43,6 +43,19 @@ ssh mike@indigo.home.mikelamoureux.net 'bash -c "/usr/local/bin/indigo-restart-p
 Verify via the plugin's own log (not the global Events.txt):
 `/Library/Application Support/Perceptive Automation/Indigo <version>/Logs/com.vtmikel.roomie/plugin.log`
 
+**First-time install** (learned during the initial deploy): the deploy script
+only *updates* plugin files — the Indigo server does not rescan the Plugins
+folder for new bundles while running, and the IOM has no enable API. To
+register a brand-new plugin, `open` the bundle on the Mac
+(`open ".../Plugins/Roomie Remote.indigoPlugin"`) and click **Install and
+Enable** in the Indigo client dialog (GUI-automatable via AppleScript/
+Peekaboo). If the client shows "Server Connection Status / Disconnected",
+connect it first via *Connect to Remote Server...* → `127.0.0.1`. Plugin
+prefs can be pre-seeded by writing
+`.../Preferences/Plugins/com.vtmikel.roomie.indiPref` **before** enabling;
+once the plugin is running the server owns that file, so change settings via
+the plugin's Configure dialog instead.
+
 ### Poking the Roomie API directly
 ```bash
 curl "http://<roomie-controller>:47147/api/v1/rooms" | python3 -m json.tool
@@ -101,8 +114,11 @@ Rules that keep this maintainable:
   `Activity1..8`, ...) against the room's current activity.
   Errors: 404 unknown room/button, 409 no activity running, 422 button
   unsupported in the current activity.
-- The production controller is the House iPad (`House-iPad` /
-  see OPNsense DHCP reservation); it must have Roomie foregrounded.
+- The production controller is the House iPad — OPNsense Kea reservation
+  `10.66.0.84` / hostname `House-iPad` (MAC `c4:12:34:f0:a5:f3`); it must
+  have Roomie foregrounded for the API to answer. Second power-off of an
+  already-off room returns success (not the documented 409) — the 409
+  handling in `power_off_room` is defensive.
 
 ## Testing conventions
 
