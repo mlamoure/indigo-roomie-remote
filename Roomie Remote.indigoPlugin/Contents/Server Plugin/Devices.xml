@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<Devices>
+    <Device type="custom" id="roomieRoom">
+        <Name>Roomie Room</Name>
+        <ConfigUI>
+            <Field id="roomUuid" type="menu">
+                <Label>Room:</Label>
+                <List class="self" method="get_room_list" dynamicReload="true"/>
+            </Field>
+            <Field id="refreshRooms" type="button">
+                <Label/>
+                <Title>Refresh Room List</Title>
+                <CallbackMethod>refresh_room_list</CallbackMethod>
+            </Field>
+            <Field id="roomName" type="textfield" hidden="true">
+                <Label/>
+            </Field>
+        </ConfigUI>
+        <States>
+            <State id="onOffState">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Room On/Off</TriggerLabel>
+                <ControlPageLabel>Room On/Off</ControlPageLabel>
+            </State>
+            <State id="currentActivityUuid">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Current Activity UUID</TriggerLabel>
+                <ControlPageLabel>Current Activity UUID</ControlPageLabel>
+            </State>
+            <State id="currentActivityName">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Current Activity Name</TriggerLabel>
+                <ControlPageLabel>Current Activity Name</ControlPageLabel>
+            </State>
+            <State id="roomName">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Room Name</TriggerLabel>
+                <ControlPageLabel>Room Name</ControlPageLabel>
+            </State>
+            <State id="activityCount">
+                <ValueType>Integer</ValueType>
+                <TriggerLabel>Activity Count</TriggerLabel>
+                <ControlPageLabel>Activity Count</ControlPageLabel>
+            </State>
+            <State id="activityList">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Activity List (JSON)</TriggerLabel>
+                <ControlPageLabel>Activity List (JSON)</ControlPageLabel>
+            </State>
+            <State id="controllerReachable">
+                <ValueType>Boolean</ValueType>
+                <TriggerLabel>Controller Reachable</TriggerLabel>
+                <ControlPageLabel>Controller Reachable</ControlPageLabel>
+            </State>
+            <State id="lastPoll">
+                <ValueType>String</ValueType>
+                <TriggerLabel>Last Successful Poll</TriggerLabel>
+                <ControlPageLabel>Last Successful Poll</ControlPageLabel>
+            </State>
+        </States>
+        <UiDisplayStateId>currentActivityName</UiDisplayStateId>
+    </Device>
+</Devices>
