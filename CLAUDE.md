@@ -43,14 +43,15 @@ ssh mike@indigo.home.mikelamoureux.net 'bash -c "/usr/local/bin/indigo-restart-p
 Verify via the plugin's own log (not the global Events.txt):
 `/Library/Application Support/Perceptive Automation/Indigo <version>/Logs/com.vtmikel.roomie/plugin.log`
 
-**Script-context gotcha (caused a prod incident):** never call
-`dev.replaceOnServer()` on this plugin's devices from `indigo-host -e`
-scripts or the scripting shell — script contexts see plugin-owned
-`pluginProps` as empty and write that emptiness back, silently wiping the
-device's room link (`replacePluginPropsOnServer` is likewise refused outside
-the owning plugin). Renames from scripts are how this bites. The plugin
-self-heals on the next poll (`_repair_orphan_devices` rebuilds props from
-the `roomName` state), but prefer doing renames in the Indigo UI.
+**Script-context gotcha:** `indigo-host -e` scripts and the scripting shell
+always see plugin-owned `pluginProps` as **empty** (`{}`) and are refused
+writes (`replacePluginPropsOnServer` raises InvalidParameter outside the
+owning plugin). So (a) never "verify" this plugin's props from a script —
+an empty dict there means nothing — and (b) device renames via
+`dev.replaceOnServer()` from scripts are safe: the server preserves the
+real props (verified live 2026-07-05). As defense-in-depth the plugin
+self-heals anyway: `_repair_orphan_devices` re-links any roomieRoom device
+with a genuinely missing `roomUuid` from its `roomName` state on each poll.
 
 **First-time install** (learned during the initial deploy): the deploy script
 only *updates* plugin files — the Indigo server does not rescan the Plugins
