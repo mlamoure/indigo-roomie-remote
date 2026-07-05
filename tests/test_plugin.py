@@ -130,14 +130,24 @@ class TestAutoCreate:
         assert created_devices == []
         assert "R1" in json.loads(plugin.pluginPrefs["knownRoomUuids"])
 
-    def test_auto_create_disabled_still_records_known(self, plugin):
+    def test_auto_create_disabled_creates_and_records_nothing(self, plugin):
         plugin.pluginPrefs["autoCreateDevices"] = False
         poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
         plugin._apply_outcome(poller.poll_once())
         from tests.conftest import created_devices
 
         assert created_devices == []
-        assert "R1" in json.loads(plugin.pluginPrefs["knownRoomUuids"])
+        assert json.loads(plugin.pluginPrefs.get("knownRoomUuids", "[]")) == []
+
+    def test_enabling_later_backfills(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        plugin.pluginPrefs["autoCreateDevices"] = True
+        plugin._apply_outcome(poller.poll_once())
+        from tests.conftest import created_devices
+
+        assert [d.name for d in created_devices] == ["Roomie Remote - Living Room"]
 
     def test_existing_device_not_duplicated(self, plugin):
         poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
@@ -302,6 +312,54 @@ class TestActivityDevices:
         assert ok
         assert values["roomName"] == "Living Room"
         assert values["activityName"] == "Watch Netflix"
+
+    def test_auto_create_activity_devices(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        plugin.pluginPrefs["autoCreateActivityDevices"] = True
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        from tests.conftest import created_devices
+
+        assert [d.name for d in created_devices] == [
+            "Roomie Remote - Living Room - Watch Plex",
+            "Roomie Remote - Living Room - Watch Netflix",
+        ]
+        dev = created_devices[0]
+        assert dev.deviceTypeId == "roomieActivity"
+        assert dev.pluginProps["activityUuid"] == "A1"
+        assert dev.pluginProps["roomUuid"] == "R1"
+        assert json.loads(plugin.pluginPrefs["knownActivityUuids"]) == ["A1", "A2"]
+
+    def test_auto_create_activity_devices_off_by_default(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        from tests.conftest import created_devices
+
+        assert created_devices == []
+
+    def test_deleted_activity_device_not_recreated(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        plugin.pluginPrefs["autoCreateActivityDevices"] = True
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        from tests.conftest import created_devices
+
+        for dev in created_devices:
+            del indigo.devices[dev.id]
+        created_devices.clear()
+        plugin._apply_outcome(poller.poll_once())
+        assert created_devices == []
+
+    def test_manually_created_activity_device_not_duplicated(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        plugin.pluginPrefs["autoCreateActivityDevices"] = True
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        make_activity_device(plugin, "A1", "My Plex Tile")
+        plugin._apply_outcome(poller.poll_once())
+        from tests.conftest import created_devices
+
+        assert [d.pluginProps["activityUuid"] for d in created_devices] == ["A2"]
 
     def test_activity_list_from_values_dict_visible_only(self, plugin):
         toggles = [

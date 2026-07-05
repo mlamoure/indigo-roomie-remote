@@ -27,6 +27,11 @@
         <Label>Automatically create Indigo devices for new Roomie rooms:</Label>
     </Field>
 
+    <Field id="autoCreateActivityDevices" type="checkbox" defaultValue="false"
+           tooltip="When enabled, a relay-style Indigo device is created automatically for each visible activity the first time it is seen (on = activity running; turn on/off to start the activity or power off the room). Devices you delete are not re-created. Expect one device per activity in every room.">
+        <Label>Automatically create Indigo devices for new Roomie activities:</Label>
+    </Field>
+
     <Field id="separator1" type="separator"/>
 
     <Field id="log_level" type="menu" defaultValue="20">
