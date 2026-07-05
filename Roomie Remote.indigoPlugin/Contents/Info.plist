@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>PluginVersion</key>
-	<string>2026.3.0</string>
+	<string>2026.7.0</string>
 	<key>ServerApiVersion</key>
 	<string>3.6</string>
 	<key>CFBundleDisplayName</key>
@@ -16,7 +16,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>https://git.home.mikelamoureux.net/mike/indigo-roomie-remote</string>
+			<string>https://github.com/mlamoure/indigo-roomie-remote</string>
 		</dict>
 	</array>
 </dict>
