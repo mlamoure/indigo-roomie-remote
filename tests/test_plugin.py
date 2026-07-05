@@ -111,7 +111,7 @@ class TestAutoCreate:
 
         assert len(created_devices) == 1
         dev = created_devices[0]
-        assert dev.name == "Living Room"
+        assert dev.name == "Roomie Remote - Living Room"
         assert dev.pluginProps["roomUuid"] == "R1"
         assert indigo.devices.folders[0].name == "Roomie Remote"
         assert dev.folderId == indigo.devices.folders[0].id
@@ -148,14 +148,14 @@ class TestAutoCreate:
         assert created_devices == []
 
     def test_name_collision_gets_suffix(self, plugin):
-        # A non-plugin device already holds the room's name.
-        other = indigo.Device(name="Living Room", deviceTypeId="relay")
+        # A non-plugin device already holds the templated name.
+        other = indigo.Device(name="Roomie Remote - Living Room", deviceTypeId="relay")
         indigo.devices[other.id] = other
         poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
         plugin._apply_outcome(poller.poll_once())
         from tests.conftest import created_devices
 
-        assert created_devices[0].name == "Living Room 2"
+        assert created_devices[0].name == "Roomie Remote - Living Room 2"
 
     def test_menu_recreates_unconditionally(self, plugin):
         client = FakeClient(rooms=[ROOM_ON])
