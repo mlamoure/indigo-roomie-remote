@@ -486,6 +486,7 @@ class Plugin(indigo.PluginBase):
             self.logger.debug(f"activities refresh failed: {outcome.activities_error}")
 
         self._auto_create_new_room_devices()
+        self._repair_orphan_devices()
 
         for room_uuid, changes in outcome.room_state_changes.items():
             for dev_id in devices_by_room.get(room_uuid, ()):
@@ -578,6 +579,50 @@ class Plugin(indigo.PluginBase):
                     f"failed to create device for room '{room.name}': {exc}"
                 )
         return created
+
+    def _repair_orphan_devices(self):
+        """Re-link roomieRoom devices whose roomUuid prop is missing.
+
+        pluginProps can be silently wiped from outside the plugin (e.g. a
+        dev.replaceOnServer() from a script — scripts see plugin props as
+        empty and write that back). Only the owning plugin may restore
+        them, so on each successful poll we rebuild the link from the
+        device's roomName state.
+        """
+        with self._dev_lock:
+            registered = {
+                dev_id for ids in self._devices_by_room.values() for dev_id in ids
+            }
+        rooms_by_name = {r.name: r for r in self._poller.rooms_snapshot()}
+        for dev in indigo.devices.iter("self"):
+            if dev.deviceTypeId != "roomieRoom" or dev.id in registered:
+                continue
+            if dev.pluginProps.get("roomUuid"):
+                continue  # startComm will pick it up; nothing to repair
+            room = rooms_by_name.get(dev.states.get("roomName") or "")
+            if room is None:
+                # Fallback: match the room name embedded in the device name.
+                for room_name, candidate in rooms_by_name.items():
+                    if dev.name.endswith(room_name):
+                        room = candidate
+                        break
+            if room is None:
+                self.logger.warning(
+                    f"'{dev.name}' has no room link and no matching Roomie room; "
+                    "re-select the room in the device settings"
+                )
+                continue
+            props = indigo.Dict()
+            props["roomUuid"] = room.uuid
+            props["roomName"] = room.name
+            dev.replacePluginPropsOnServer(props)
+            with self._dev_lock:
+                self._devices_by_room.setdefault(room.uuid, set()).add(dev.id)
+            self._push_states(dev, RoomiePoller._room_states(room))
+            dev.setErrorStateOnServer(None)
+            self.logger.warning(
+                f"repaired missing room link on '{dev.name}' → {room.name} ({room.uuid})"
+            )
 
     def _device_folder_id(self):
         for folder in indigo.devices.folders:

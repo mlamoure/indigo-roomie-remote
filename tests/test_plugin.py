@@ -170,6 +170,52 @@ class TestAutoCreate:
         assert len(created_devices) == 1
 
 
+class TestRepairOrphanDevices:
+    """pluginProps wiped from outside the plugin get rebuilt on poll."""
+
+    def make_orphan(self, name="Roomie Remote - Living Room", room_name="Living Room"):
+        dev = indigo.Device(name=name, deviceTypeId="roomieRoom", pluginProps={})
+        if room_name is not None:
+            dev.states["roomName"] = room_name
+        indigo.devices[dev.id] = dev
+        return dev
+
+    def test_orphan_repaired_from_room_name_state(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        dev = self.make_orphan()
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.pluginProps["roomUuid"] == "R1"
+        assert dev.pluginProps["roomName"] == "Living Room"
+        assert dev.states["onOffState"] is True
+        assert dev.errorState is None
+        # registered: next outcome updates it
+        outcome = poller.poll_once(force_full=True)
+        plugin._apply_outcome(outcome)
+        assert dev.states["currentActivityName"] == "Watch Plex"
+
+    def test_orphan_repaired_via_device_name_fallback(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        dev = self.make_orphan(room_name=None)
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.pluginProps["roomUuid"] == "R1"
+
+    def test_orphan_without_match_left_alone(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        dev = self.make_orphan(name="Some Random Device", room_name="Gone Room")
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.pluginProps == {}
+
+    def test_healthy_devices_untouched(self, plugin):
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        dev = make_room_device(plugin)
+        props_before = dict(dev.pluginProps)
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.pluginProps == props_before
+
+
 class TestValidation:
     def test_prefs_bad_host_rejected(self, plugin):
         ok, _, errors = plugin.validatePrefsConfigUi(
