@@ -10,6 +10,8 @@ power rooms off, and send remote button presses.
 
 - One Indigo device per Roomie room, showing the current activity in the
   device list at a glance ("Watch Apple TV", "Off", ...).
+- Optional relay-style **activity devices** (on = that activity is running;
+  turn on/off to start the activity or power off the room).
 - Automatic device creation: rooms get Indigo devices the first time they are
   seen (configurable, and deleted devices are not re-created behind your back).
 - Actions: **Start Activity** (with activity picker), **Power Off Room**,
@@ -73,6 +75,14 @@ power rooms off, and send remote button presses.
 A room whose current activity is an off-type ("System Off") is treated as
 off: `onOffState` false, empty activity UUID/name. This keeps triggers simple
 ("became off") instead of matching magic activity names.
+
+**Roomie Activity** (`roomieActivity`) — optional relay-style device bound to
+one activity in one room; create them manually for the activities you care
+about. The device is *on* while that activity is the room's current activity.
+Indigo's standard device controls map naturally: **Turn On** starts the
+activity, **Turn Off** powers off the room, **Toggle** does what you'd
+expect. This makes control pages and activity-level triggers trivial — no
+state matching needed.
 
 ## Actions
 

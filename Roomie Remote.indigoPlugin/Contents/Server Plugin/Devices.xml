@@ -60,4 +60,32 @@
         </States>
         <UiDisplayStateId>currentActivityName</UiDisplayStateId>
     </Device>
+
+    <Device type="relay" id="roomieActivity">
+        <Name>Roomie Activity</Name>
+        <ConfigUI>
+            <Field id="configInfoLabel" type="label">
+                <Label>A relay-style device tracking one Roomie activity: on while the activity is running. Turning the device on starts the activity; turning it off powers off the room.</Label>
+            </Field>
+            <Field id="roomUuid" type="menu">
+                <Label>Room:</Label>
+                <List class="self" method="get_room_list" dynamicReload="true"/>
+            </Field>
+            <Field id="activityUuid" type="menu">
+                <Label>Activity:</Label>
+                <List class="self" filter="visibleOnly" method="get_activity_list" dynamicReload="true"/>
+            </Field>
+            <Field id="refreshRooms" type="button">
+                <Label/>
+                <Title>Refresh Lists</Title>
+                <CallbackMethod>refresh_room_list</CallbackMethod>
+            </Field>
+            <Field id="roomName" type="textfield" hidden="true">
+                <Label/>
+            </Field>
+            <Field id="activityName" type="textfield" hidden="true">
+                <Label/>
+            </Field>
+        </ConfigUI>
+    </Device>
 </Devices>

@@ -170,6 +170,153 @@ class TestAutoCreate:
         assert len(created_devices) == 1
 
 
+class RecordingClient:
+    """Records action calls made through plugin._client()."""
+
+    def __init__(self):
+        self.calls = []
+
+    def run_activity(self, uuid, ts=None, delay=None):
+        self.calls.append(("run_activity", uuid, ts, delay))
+
+    def press(self, button, roomuuid, count=1, digits=None):
+        self.calls.append(("press", button, roomuuid, count, digits))
+
+
+def make_activity_device(plugin, activity_uuid, name, room_uuid="R1"):
+    dev = indigo.Device(
+        name=name,
+        deviceTypeId="roomieActivity",
+        pluginProps={
+            "roomUuid": room_uuid,
+            "roomName": "Living Room",
+            "activityUuid": activity_uuid,
+            "activityName": name,
+        },
+    )
+    indigo.devices[dev.id] = dev
+    plugin.deviceStartComm(dev)
+    return dev
+
+
+class TestActivityDevices:
+    def test_tracks_running_activity(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        client = FakeClient(rooms=[ROOM_ON])  # current activity: A1
+        poller = attach_poller(plugin, client)
+        dev_a1 = make_activity_device(plugin, "A1", "Watch Plex (LR)")
+        dev_a2 = make_activity_device(plugin, "A2", "Watch Netflix (LR)")
+        plugin._apply_outcome(poller.poll_once())
+        assert dev_a1.states["onOffState"] is True
+        assert dev_a2.states["onOffState"] is False
+
+    def test_follows_activity_change(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        client = FakeClient(rooms=[ROOM_ON])
+        poller = attach_poller(plugin, client)
+        dev_a1 = make_activity_device(plugin, "A1", "Watch Plex (LR)")
+        dev_a2 = make_activity_device(plugin, "A2", "Watch Netflix (LR)")
+        plugin._apply_outcome(poller.poll_once())
+        changed = dict(ROOM_ON)
+        changed["currentactivityuuid"] = "A2"
+        changed["currentactivityname"] = "Watch Netflix"
+        client.rooms = [changed]
+        plugin._apply_outcome(poller.poll_once())
+        assert dev_a1.states["onOffState"] is False
+        assert dev_a2.states["onOffState"] is True
+        assert dev_a2.stateImage == indigo.kStateImageSel.PowerOn
+
+    def test_room_off_turns_activity_device_off(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        client = FakeClient(rooms=[ROOM_ON])
+        poller = attach_poller(plugin, client)
+        dev_a1 = make_activity_device(plugin, "A1", "Watch Plex (LR)")
+        plugin._apply_outcome(poller.poll_once())
+        client.rooms = [ROOM_OFF]
+        plugin._apply_outcome(poller.poll_once())
+        assert dev_a1.states["onOffState"] is False
+
+    def test_start_comm_pushes_state_from_cache(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        poller.poll_once()
+        dev = make_activity_device(plugin, "A1", "Watch Plex (LR)")
+        assert dev.states["onOffState"] is True
+
+    def test_turn_on_runs_activity(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        dev = make_activity_device(plugin, "A2", "Watch Netflix (LR)")
+        action = type("A", (), {"deviceAction": indigo.kDeviceAction.TurnOn})()
+        plugin.actionControlDevice(action, dev)
+        assert recorder.calls == [("run_activity", "A2", None, None)]
+
+    def test_turn_off_presses_activity_off(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        dev = make_activity_device(plugin, "A2", "Watch Netflix (LR)")
+        action = type("A", (), {"deviceAction": indigo.kDeviceAction.TurnOff})()
+        plugin.actionControlDevice(action, dev)
+        assert recorder.calls == [("press", "ActivityOff", "R1", 1, None)]
+
+    def test_toggle_uses_current_state(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        dev = make_activity_device(plugin, "A2", "Watch Netflix (LR)")
+        dev.states["onOffState"] = True
+        action = type("A", (), {"deviceAction": indigo.kDeviceAction.Toggle})()
+        plugin.actionControlDevice(action, dev)
+        assert recorder.calls[0][0] == "press"  # was on -> power off
+
+    def test_unreachable_marks_activity_devices(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        client = FakeClient(rooms=[ROOM_ON])
+        poller = attach_poller(plugin, client)
+        dev = make_activity_device(plugin, "A1", "Watch Plex (LR)")
+        plugin._apply_outcome(poller.poll_once())
+        client.fail_rooms = True
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.errorState == "unreachable"
+        client.fail_rooms = False
+        plugin._apply_outcome(poller.poll_once())
+        assert dev.errorState is None
+
+    def test_device_config_requires_activity(self, plugin):
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        poller.poll_once()
+        ok, _, errors = plugin.validateDeviceConfigUi(
+            {"roomUuid": "R1", "activityUuid": ""}, "roomieActivity", 1
+        )
+        assert not ok
+        assert "activityUuid" in errors
+
+    def test_device_config_stores_names(self, plugin):
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        poller.poll_once()
+        ok, values = plugin.validateDeviceConfigUi(
+            {"roomUuid": "R1", "activityUuid": "A2"}, "roomieActivity", 1
+        )
+        assert ok
+        assert values["roomName"] == "Living Room"
+        assert values["activityName"] == "Watch Netflix"
+
+    def test_activity_list_from_values_dict_visible_only(self, plugin):
+        toggles = [
+            {"uuid": "T1+", "name": "Shades (On)", "roomuuid": "R1"},
+            {"uuid": "T1-", "name": "Shades (Off)", "roomuuid": "R1"},
+        ]
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON], activities=toggles))
+        poller.poll_once()
+        entries = plugin.get_activity_list(
+            filter="visibleOnly", values_dict={"roomUuid": "R1"}
+        )
+        values = [value for value, _ in entries]
+        assert values == ["A1", "A2"]  # no toggle variants, no separator
+
+
 class TestRepairOrphanDevices:
     """pluginProps wiped from outside the plugin get rebuilt on poll."""
 
