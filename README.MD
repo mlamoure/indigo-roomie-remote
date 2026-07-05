@@ -55,6 +55,7 @@ power rooms off, and send remote button presses.
 | Poll interval | 5s | How often room status is refreshed (2–300s). Roomie has no push API, so state freshness equals this interval. |
 | Request timeout | 5s | Per-HTTP-request timeout (1–30s). |
 | Auto-create devices | on | Create an Indigo device for each newly-seen Roomie room. Deleted devices stay deleted. |
+| Auto-create activity devices | off | Create a relay-style device for each newly-seen visible activity (one per activity per room). Deleted devices stay deleted; enabling later back-fills existing activities. |
 | Event Logging Level | Info | Standard Indigo log-level menu. |
 
 ## Devices & States
@@ -78,7 +79,9 @@ off: `onOffState` false, empty activity UUID/name. This keeps triggers simple
 
 **Roomie Activity** (`roomieActivity`) — optional relay-style device bound to
 one activity in one room; create them manually for the activities you care
-about. The device is *on* while that activity is the room's current activity.
+about, or enable the auto-create-activity-devices checkbox to get one per
+visible activity. The device is *on* while that activity is the room's
+current activity.
 Indigo's standard device controls map naturally: **Turn On** starts the
 activity, **Turn Off** powers off the room, **Toggle** does what you'd
 expect. This makes control pages and activity-level triggers trivial — no

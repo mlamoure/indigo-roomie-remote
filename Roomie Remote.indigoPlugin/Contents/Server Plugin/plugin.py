@@ -22,6 +22,7 @@ from roomie.poller import RoomiePoller
 
 DEVICE_FOLDER_NAME = "Roomie Remote"
 DEVICE_NAME_TEMPLATE = "Roomie Remote - {room}"
+ACTIVITY_DEVICE_NAME_TEMPLATE = "Roomie Remote - {room} - {activity}"
 
 # Symbolic buttons from Roomie's Universal Remote API, grouped for the
 # Press Remote Button menu. Roomie resolves them against the room's
@@ -627,22 +628,53 @@ class Plugin(indigo.PluginBase):
     ########################################
 
     def _auto_create_new_room_devices(self):
+        """Create devices for rooms/activities never seen before.
+
+        The "seen" sets only grow while the corresponding auto-create
+        checkbox is enabled, so enabling it later still back-fills, and
+        devices the user deletes are never re-created (the menu item does
+        that explicitly).
+        """
         rooms = self._poller.rooms_snapshot()
-        known = set(json.loads(self.pluginPrefs.get("knownRoomUuids", "[]")))
-        new_rooms = [room for room in rooms if room.uuid not in known]
-        if not new_rooms:
-            return
+        prefs_dirty = False
+
         if bool(self.pluginPrefs.get("autoCreateDevices", True)):
-            created = self._create_missing_room_devices(new_rooms)
-            if created:
-                self.logger.info(
-                    f"auto-created {len(created)} room device(s): {', '.join(created)}"
-                )
-        known.update(room.uuid for room in rooms)
-        self.pluginPrefs["knownRoomUuids"] = json.dumps(sorted(known))
-        save_prefs = getattr(self, "savePluginPrefs", None)
-        if save_prefs:
-            save_prefs()
+            known = set(json.loads(self.pluginPrefs.get("knownRoomUuids", "[]")))
+            new_rooms = [room for room in rooms if room.uuid not in known]
+            if new_rooms:
+                created = self._create_missing_room_devices(new_rooms)
+                if created:
+                    self.logger.info(
+                        f"auto-created {len(created)} room device(s): "
+                        f"{', '.join(created)}"
+                    )
+                known.update(room.uuid for room in new_rooms)
+                self.pluginPrefs["knownRoomUuids"] = json.dumps(sorted(known))
+                prefs_dirty = True
+
+        if bool(self.pluginPrefs.get("autoCreateActivityDevices", False)):
+            known = set(json.loads(self.pluginPrefs.get("knownActivityUuids", "[]")))
+            new_pairs = [
+                (room, activity)
+                for room in rooms
+                for activity in room.activities
+                if activity.uuid not in known
+            ]
+            if new_pairs:
+                created = self._create_missing_activity_devices(new_pairs)
+                if created:
+                    self.logger.info(
+                        f"auto-created {len(created)} activity device(s): "
+                        f"{', '.join(created)}"
+                    )
+                known.update(activity.uuid for _, activity in new_pairs)
+                self.pluginPrefs["knownActivityUuids"] = json.dumps(sorted(known))
+                prefs_dirty = True
+
+        if prefs_dirty:
+            save_prefs = getattr(self, "savePluginPrefs", None)
+            if save_prefs:
+                save_prefs()
 
     def _create_missing_room_devices(self, rooms):
         existing = {
@@ -672,6 +704,46 @@ class Plugin(indigo.PluginBase):
             except Exception as exc:
                 self.logger.error(
                     f"failed to create device for room '{room.name}': {exc}"
+                )
+        return created
+
+    def _create_missing_activity_devices(self, pairs):
+        """Create roomieActivity devices for (room, activity) pairs that
+        don't already have one (matched on activityUuid)."""
+        existing = {
+            dev.pluginProps.get("activityUuid")
+            for dev in indigo.devices.iter("self")
+            if dev.deviceTypeId == "roomieActivity"
+        }
+        created = []
+        for room, activity in pairs:
+            if activity.uuid in existing:
+                continue
+            base_name = ACTIVITY_DEVICE_NAME_TEMPLATE.format(
+                room=room.name, activity=activity.name
+            )
+            name = base_name
+            suffix = 1
+            while name in indigo.devices:
+                suffix += 1
+                name = f"{base_name} {suffix}"
+            try:
+                indigo.device.create(
+                    indigo.kProtocol.Plugin,
+                    name=name,
+                    deviceTypeId="roomieActivity",
+                    props={
+                        "roomUuid": room.uuid,
+                        "roomName": room.name,
+                        "activityUuid": activity.uuid,
+                        "activityName": activity.name,
+                    },
+                    folder=self._device_folder_id(),
+                )
+                created.append(name)
+            except Exception as exc:
+                self.logger.error(
+                    f"failed to create device for activity '{activity.name}': {exc}"
                 )
         return created
 
