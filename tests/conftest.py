@@ -115,6 +115,9 @@ indigo_stub.kStateImageSel = types.SimpleNamespace(
     PowerOn="PowerOn", PowerOff="PowerOff"
 )
 indigo_stub.kUniversalAction = types.SimpleNamespace(RequestStatus="RequestStatus")
+indigo_stub.kDeviceAction = types.SimpleNamespace(
+    TurnOn="TurnOn", TurnOff="TurnOff", Toggle="Toggle"
+)
 
 
 class IndigoDict(dict):

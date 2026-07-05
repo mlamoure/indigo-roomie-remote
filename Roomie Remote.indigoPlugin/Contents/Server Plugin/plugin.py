@@ -83,7 +83,8 @@ class Plugin(indigo.PluginBase):
 
         self._poller = None
         self._dev_lock = threading.Lock()
-        self._devices_by_room = {}  # room_uuid -> set of device ids
+        self._devices_by_room = {}  # room_uuid -> set of roomieRoom device ids
+        self._activity_devices_by_room = {}  # room_uuid -> set of roomieActivity ids
         self._force_full = False
 
     ########################################
@@ -127,20 +128,33 @@ class Plugin(indigo.PluginBase):
         if not room_uuid:
             dev.setErrorStateOnServer("no room configured")
             return
+        registry = (
+            self._activity_devices_by_room
+            if dev.deviceTypeId == "roomieActivity"
+            else self._devices_by_room
+        )
         with self._dev_lock:
-            self._devices_by_room.setdefault(room_uuid, set()).add(dev.id)
-        self._push_full_state(dev, room_uuid)
+            registry.setdefault(room_uuid, set()).add(dev.id)
+        if dev.deviceTypeId == "roomieActivity":
+            self._push_activity_state_from_cache(dev, room_uuid)
+        else:
+            self._push_full_state(dev, room_uuid)
         if self._poller:
             self._poller.request_refresh()
 
     def deviceStopComm(self, dev):
         self.logger.debug(f"deviceStopComm: {dev.name}")
         room_uuid = dev.pluginProps.get("roomUuid")
+        registry = (
+            self._activity_devices_by_room
+            if dev.deviceTypeId == "roomieActivity"
+            else self._devices_by_room
+        )
         with self._dev_lock:
-            if room_uuid in self._devices_by_room:
-                self._devices_by_room[room_uuid].discard(dev.id)
-                if not self._devices_by_room[room_uuid]:
-                    del self._devices_by_room[room_uuid]
+            if room_uuid in registry:
+                registry[room_uuid].discard(dev.id)
+                if not registry[room_uuid]:
+                    del registry[room_uuid]
 
     ########################################
     # Config UIs
@@ -212,10 +226,22 @@ class Plugin(indigo.PluginBase):
         if not room_uuid:
             errors["roomUuid"] = "Choose a room (use Refresh Room List if empty)."
             return (False, values_dict, errors)
-        for room in self._poller.rooms_snapshot() if self._poller else []:
-            if room.uuid == room_uuid:
-                values_dict["roomName"] = room.name
+        room = None
+        for candidate in self._poller.rooms_snapshot() if self._poller else []:
+            if candidate.uuid == room_uuid:
+                room = candidate
+                values_dict["roomName"] = candidate.name
                 break
+        if type_id == "roomieActivity":
+            activity_uuid = values_dict.get("activityUuid")
+            if not activity_uuid or activity_uuid == SEPARATOR_VALUE:
+                errors["activityUuid"] = "Choose an activity."
+                return (False, values_dict, errors)
+            if room is not None:
+                for activity in room.activities:
+                    if activity.uuid == activity_uuid:
+                        values_dict["activityName"] = activity.name
+                        break
         return (True, values_dict)
 
     def validateActionConfigUi(self, values_dict, type_id, device_id):
@@ -272,25 +298,34 @@ class Plugin(indigo.PluginBase):
         return values_dict
 
     def get_activity_list(self, filter="", values_dict=None, type_id="", target_id=0):
-        if not self._poller or not target_id:
-            return [("", "-- open this dialog from a Roomie Room device --")]
-        try:
-            room_uuid = indigo.devices[target_id].pluginProps.get("roomUuid")
-        except KeyError:
-            return [("", "-- device not found --")]
+        if not self._poller:
+            return [("", "-- plugin still starting --")]
+        # Device config dialogs carry the room in values_dict; action config
+        # dialogs resolve it from the target device's props.
+        room_uuid = (values_dict or {}).get("roomUuid")
+        if not room_uuid:
+            if not target_id:
+                return [("", "-- choose a room first --")]
+            try:
+                room_uuid = indigo.devices[target_id].pluginProps.get("roomUuid")
+            except KeyError:
+                return [("", "-- device not found --")]
+        if not room_uuid:
+            return [("", "-- choose a room first --")]
         entries = []
         for room in self._poller.rooms_snapshot():
             if room.uuid == room_uuid:
                 entries = [(a.uuid, a.name) for a in room.activities]
                 break
-        toggles = [
-            a
-            for a in self._poller.activities_for_room(room_uuid)
-            if a.toggle_state is not None
-        ]
-        if toggles:
-            entries.append((SEPARATOR_VALUE, "── Toggle Activities ──"))
-            entries.extend((a.uuid, a.name) for a in toggles)
+        if filter != "visibleOnly":
+            toggles = [
+                a
+                for a in self._poller.activities_for_room(room_uuid)
+                if a.toggle_state is not None
+            ]
+            if toggles:
+                entries.append((SEPARATOR_VALUE, "── Toggle Activities ──"))
+                entries.extend((a.uuid, a.name) for a in toggles)
         if not entries:
             entries = [("", "-- no activities cached; is the controller online? --")]
         return entries
@@ -387,6 +422,29 @@ class Plugin(indigo.PluginBase):
             self.logger.info(f"{dev.name}: status requested")
             self._poller.request_refresh()
 
+    def actionControlDevice(self, action, dev):
+        """Standard on/off/toggle for roomieActivity relay devices."""
+        if dev.deviceTypeId != "roomieActivity":
+            return
+        turn_on = action.deviceAction == indigo.kDeviceAction.TurnOn
+        if action.deviceAction == indigo.kDeviceAction.Toggle:
+            turn_on = not dev.states.get("onOffState", False)
+        activity_uuid = dev.pluginProps.get("activityUuid", "")
+        activity_name = dev.pluginProps.get("activityName") or activity_uuid
+        room_uuid = dev.pluginProps.get("roomUuid", "")
+        try:
+            if turn_on:
+                self._client().run_activity(activity_uuid)
+                self.logger.info(f"{dev.name}: started activity '{activity_name}'")
+            else:
+                self._client().press("ActivityOff", room_uuid)
+                self.logger.info(f"{dev.name}: powered off room")
+            self._schedule_refresh()
+        except RoomieError as exc:
+            self.logger.error(
+                f"{dev.name}: {'start' if turn_on else 'power off'} failed: {exc}"
+            )
+
     ########################################
     # Menu items
     ########################################
@@ -465,6 +523,9 @@ class Plugin(indigo.PluginBase):
     def _apply_outcome(self, outcome):
         with self._dev_lock:
             devices_by_room = {k: set(v) for k, v in self._devices_by_room.items()}
+            activity_devices_by_room = {
+                k: set(v) for k, v in self._activity_devices_by_room.items()
+            }
 
         if not outcome.ok:
             if outcome.reachability_changed:
@@ -478,6 +539,9 @@ class Plugin(indigo.PluginBase):
                             [{"key": "controllerReachable", "value": False}]
                         )
                         dev.setErrorStateOnServer("unreachable")
+                for dev_ids in activity_devices_by_room.values():
+                    for dev_id in dev_ids:
+                        indigo.devices[dev_id].setErrorStateOnServer("unreachable")
             return
 
         if outcome.reachability_changed:
@@ -494,16 +558,30 @@ class Plugin(indigo.PluginBase):
                 self._push_states(dev, changes)
                 if outcome.reachability_changed or getattr(dev, "errorState", None):
                     dev.setErrorStateOnServer(None)
-
-        for room_uuid, dev_ids in devices_by_room.items():
-            if room_uuid not in outcome.rooms_present:
-                for dev_id in dev_ids:
+            if "currentActivityUuid" in changes or outcome.reachability_changed:
+                current_uuid = changes.get("currentActivityUuid")
+                for dev_id in activity_devices_by_room.get(room_uuid, ()):
                     dev = indigo.devices[dev_id]
-                    if getattr(dev, "errorState", None) != "room not found":
-                        self.logger.warning(
-                            f"{dev.name}: room {room_uuid} no longer exists in Roomie"
-                        )
-                    dev.setErrorStateOnServer("room not found")
+                    if current_uuid is None:
+                        # Activity unchanged this poll; only clearing errors.
+                        dev.setErrorStateOnServer(None)
+                        continue
+                    self._set_activity_device_state(
+                        dev, dev.pluginProps.get("activityUuid") == current_uuid
+                    )
+                    if outcome.reachability_changed or getattr(dev, "errorState", None):
+                        dev.setErrorStateOnServer(None)
+
+        for registry in (devices_by_room, activity_devices_by_room):
+            for room_uuid, dev_ids in registry.items():
+                if room_uuid not in outcome.rooms_present:
+                    for dev_id in dev_ids:
+                        dev = indigo.devices[dev_id]
+                        if getattr(dev, "errorState", None) != "room not found":
+                            self.logger.warning(
+                                f"{dev.name}: room {room_uuid} no longer exists in Roomie"
+                            )
+                        dev.setErrorStateOnServer("room not found")
 
     def _push_states(self, dev, changes):
         update_list = []
@@ -525,6 +603,23 @@ class Plugin(indigo.PluginBase):
         for room in self._poller.rooms_snapshot() if self._poller else []:
             if room.uuid == room_uuid:
                 self._push_states(dev, RoomiePoller._room_states(room))
+                return
+
+    def _set_activity_device_state(self, dev, is_on):
+        if dev.states.get("onOffState") == is_on:
+            return
+        dev.updateStateOnServer("onOffState", is_on)
+        dev.updateStateImageOnServer(
+            indigo.kStateImageSel.PowerOn if is_on else indigo.kStateImageSel.PowerOff
+        )
+
+    def _push_activity_state_from_cache(self, dev, room_uuid):
+        for room in self._poller.rooms_snapshot() if self._poller else []:
+            if room.uuid == room_uuid:
+                self._set_activity_device_state(
+                    dev,
+                    room.current_activity_uuid == dev.pluginProps.get("activityUuid"),
+                )
                 return
 
     ########################################
