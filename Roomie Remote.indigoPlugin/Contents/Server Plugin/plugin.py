@@ -21,6 +21,7 @@ from roomie.client import RoomieClient, RoomieError, RoomieRequestFailed
 from roomie.poller import RoomiePoller
 
 DEVICE_FOLDER_NAME = "Roomie Remote"
+DEVICE_NAME_TEMPLATE = "Roomie Remote - {room}"
 
 # Symbolic buttons from Roomie's Universal Remote API, grouped for the
 # Press Remote Button menu. Roomie resolves them against the room's
@@ -557,11 +558,12 @@ class Plugin(indigo.PluginBase):
         for room in rooms:
             if room.uuid in existing:
                 continue
-            name = room.name
+            base_name = DEVICE_NAME_TEMPLATE.format(room=room.name)
+            name = base_name
             suffix = 1
             while name in indigo.devices:
                 suffix += 1
-                name = f"{room.name} {suffix}"
+                name = f"{base_name} {suffix}"
             try:
                 indigo.device.create(
                     indigo.kProtocol.Plugin,
