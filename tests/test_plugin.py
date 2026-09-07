@@ -529,3 +529,113 @@ class TestDynamicLists:
         assert "VolumeUp" in values
         assert "ActivityOff" in values
         assert values.count("-1") >= 8  # one separator per group
+
+
+class TestButtonLexiconInActions:
+    def make_press_action(self, button, count="1", digits=""):
+        return type(
+            "A", (), {"props": {"button": button, "count": count, "digits": digits}}
+        )()
+
+    def test_button_list_is_the_full_lexicon(self, plugin):
+        from roomie.lexicon import BUTTON_NAMES
+
+        values = [value for value, _ in plugin.get_button_list() if value != "-1"]
+        assert values == BUTTON_NAMES
+
+    def test_saved_action_with_old_alias_still_presses(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        dev = make_room_device(plugin)
+        plugin.press_button(self.make_press_action("Mute"), dev)
+        assert recorder.calls == [("press", "VolumeMute", "R1", 1, None)]
+
+    def test_saved_action_with_retired_name_logs_and_skips(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        dev = make_room_device(plugin)
+        plugin.press_button(self.make_press_action("Eject"), dev)
+        assert recorder.calls == []
+
+    def test_action_config_rejects_unknown_button(self, plugin):
+        ok, _, errors = plugin.validateActionConfigUi(
+            {"button": "Bogus", "count": "1", "digits": ""}, "pressButton", 1
+        )
+        assert not ok
+        assert "button" in errors
+
+    def test_action_config_accepts_alias(self, plugin):
+        ok, _ = plugin.validateActionConfigUi(
+            {"button": "Mute", "count": "1", "digits": ""}, "pressButton", 1
+        )
+        assert ok
+
+
+class TestMcpProviderWiring:
+    """handle_mcp_tool_invoke end to end through the stubbed indigo module."""
+
+    def invoke(self, plugin, tool, **arguments):
+        action = type(
+            "A", (), {"props": {"tool": tool, "arguments": json.dumps(arguments)}}
+        )()
+        return json.loads(plugin.handle_mcp_tool_invoke(action))
+
+    def test_startup_broadcasts_mcp_tools_updated(self, plugin):
+        from tests.conftest import broadcasts
+
+        plugin.startup()
+        assert broadcasts == ["mcp_tools_updated"]
+
+    def test_list_rooms_includes_indigo_device_ids(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        dev = make_room_device(plugin)
+        plugin._apply_outcome(poller.poll_once())
+        reply = self.invoke(plugin, "list_rooms")
+        assert reply["status"] == "ok"
+        room = reply["result"]["rooms"][0]
+        assert room["name"] == "Living Room"
+        assert room["indigo_device_ids"] == [dev.id]
+        assert reply["result"]["controller"]["reachable"] is True
+
+    def test_room_addressed_by_indigo_device_id(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        dev = make_room_device(plugin)
+        act_dev = make_activity_device(plugin, "A2", "LR Netflix")
+        plugin._apply_outcome(poller.poll_once())
+        reply = self.invoke(plugin, "get_room", room=str(dev.id))
+        assert reply["status"] == "ok"
+        assert reply["result"]["room_uuid"] == "R1"
+        assert reply["result"]["indigo_activity_devices"] == [
+            {
+                "id": act_dev.id,
+                "name": "LR Netflix",
+                "activity_uuid": "A2",
+                "is_on": False,
+            }
+        ]
+
+    def test_write_tool_uses_plugin_client_and_schedules_refresh(self, plugin):
+        plugin.pluginPrefs["autoCreateDevices"] = False
+        poller = attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        plugin._apply_outcome(poller.poll_once())
+        recorder = RecordingClient()
+        plugin._client = lambda: recorder
+        scheduled = []
+        plugin._schedule_refresh = lambda delay=1.5: scheduled.append(delay)
+        reply = self.invoke(
+            plugin, "start_activity", room="living room", activity="netflix"
+        )
+        assert reply["status"] == "ok", reply
+        assert recorder.calls == [("run_activity", "A2", None, None)]
+        assert scheduled == [1.5]
+        assert reply["result"]["was_already_running"] is False
+
+    def test_unknown_tool_is_in_band_error(self, plugin):
+        attach_poller(plugin, FakeClient(rooms=[ROOM_ON]))
+        reply = self.invoke(plugin, "nope")
+        assert reply["status"] == "error"
+        assert reply["error"]["type"] == "not_found"

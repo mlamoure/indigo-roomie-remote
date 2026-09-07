@@ -50,6 +50,7 @@ class RoomiePoller:
         self._failures = 0
         self._poll_count = 0
         self._refresh_activities = False
+        self._last_success: Optional[str] = None  # ISO timestamp
 
     def set_client(self, client: RoomieClient) -> None:
         with self._lock:
@@ -64,9 +65,23 @@ class RoomiePoller:
             return self.poll_interval
         return min(self.poll_interval * (2**self._failures), self.max_backoff)
 
+    @property
+    def consecutive_failures(self) -> int:
+        return self._failures
+
+    @property
+    def last_successful_poll(self) -> Optional[str]:
+        """ISO timestamp of the last successful rooms fetch (poll or manual
+        refresh), or None if the controller has never answered."""
+        return self._last_success
+
     def rooms_snapshot(self) -> list[Room]:
         with self._lock:
             return list(self._rooms.values())
+
+    def activities_snapshot(self) -> list[Activity]:
+        with self._lock:
+            return list(self._activities.values())
 
     def activities_for_room(self, room_uuid: str) -> list[Activity]:
         with self._lock:
@@ -95,6 +110,9 @@ class RoomiePoller:
         rooms = [normalize_room(Room.from_api(d), off_uuids) for d in raw_rooms]
         with self._lock:
             self._rooms = {room.uuid: room for room in rooms}
+            self._last_success = (
+                datetime.now().astimezone().isoformat(timespec="seconds")
+            )
         return rooms
 
     def poll_once(self, force_full: bool = False) -> PollOutcome:
@@ -140,6 +158,7 @@ class RoomiePoller:
             if force_full or recovered:
                 self._last_pushed.clear()
             self._rooms = {room.uuid: room for room in rooms}
+            self._last_success = timestamp
             changes: dict[str, dict] = {}
             for room in rooms:
                 desired = self._room_states(room)

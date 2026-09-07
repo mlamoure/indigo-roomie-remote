@@ -1,0 +1,290 @@
+{
+  "manifest_version": 1,
+  "provider": {
+    "plugin_id": "com.vtmikel.roomie",
+    "display_name": "Roomie Remote"
+  },
+  "tool_prefix": "roomie",
+  "invoke_action_id": "mcp_tool_invoke",
+  "tools": [
+    {
+      "name": "list_rooms",
+      "description": "List every Roomie room with its on/off state, current activity, visible-activity count, and the Indigo device ids linked to it, plus controller reachability. Served from the plugin's poll cache; pass refresh=true to fetch live first. Start here to learn room names before calling other roomie_* tools.",
+      "write": false,
+      "timeout_seconds": 15,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "boolean",
+            "description": "Fetch live from the controller before answering instead of using the poll cache (a few seconds old at most).",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_room",
+      "description": "Full detail for one room: visible activities with which one is running, toggle activities with their '(On)'/'(Off)' variants, off-type activities, and the Indigo room and activity devices linked to it. Use it to pick an activity for roomie_start_activity and to confirm state after a write.",
+      "write": false,
+      "timeout_seconds": 15,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Room name (case-insensitive; a unique partial name works), room UUID, or the Indigo device id of the room's device."
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "Fetch live from the controller before answering instead of using the poll cache (a few seconds old at most).",
+            "default": false
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "get_capabilities",
+      "description": "Ask Roomie which remote buttons work for a room's currently running activity, grouped by category, with the device each button drives. Live call to the controller. Fails with a conflict when the room is off unless 'activity' names a specific activity to evaluate instead. Use before roomie_press_button when unsure a button is supported.",
+      "write": false,
+      "timeout_seconds": 20,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Room name (case-insensitive; a unique partial name works), room UUID, or the Indigo device id of the room's device."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Optional: evaluate this activity (name or UUID, within the room) instead of the one currently running."
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "list_devices",
+      "description": "Roomie's hardware inventory (TVs, receivers, streamers, switchers) with brand, model, type, room, and network address. By default only devices with a network address are returned; include_all=true adds everything Roomie knows, including devices imported from Indigo via HomeKit. Live call.",
+      "write": false,
+      "timeout_seconds": 20,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Optional: only devices in this room (name, UUID, or Indigo room-device id)."
+          },
+          "include_all": {
+            "type": "boolean",
+            "description": "Include devices without a network address (HomeKit/Indigo imports, sensors, lights).",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_status",
+      "description": "Plugin and controller health: configured host and port, whether the controller is reachable, consecutive poll failures and current backoff, last successful poll time, cache sizes, and Indigo device counts. test_connection=true performs a live request to the controller and reports the outcome. Use it when other tools report the controller unreachable.",
+      "write": false,
+      "timeout_seconds": 20,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_connection": {
+            "type": "boolean",
+            "description": "Also make a live request to the controller and report ok/error.",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "start_activity",
+      "description": "Start a Roomie activity in a room, exactly like tapping it in the Roomie app. Toggle activities take toggle_state on|off (or use their '(On)'/'(Off)' name). An activity that is already running is re-dispatched and reported with was_already_running=true. Returns immediately; Indigo device states converge within a few seconds, so confirm with roomie_get_room.",
+      "write": true,
+      "timeout_seconds": 30,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Room name (case-insensitive; a unique partial name works), room UUID, or the Indigo device id of the room's device."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Activity name (case-insensitive; a unique partial name works) or activity UUID, resolved within this room only because names repeat across rooms. Toggle activities may be named with their '(On)' / '(Off)' suffix."
+          },
+          "toggle_state": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off"
+            ],
+            "description": "For toggle activities: which side to run."
+          },
+          "delay_seconds": {
+            "type": "number",
+            "minimum": 1.0,
+            "description": "Optional delay before Roomie runs the activity. Roomie requires at least 1.0 second; omit for none."
+          }
+        },
+        "required": [
+          "room",
+          "activity"
+        ]
+      }
+    },
+    {
+      "name": "power_off_room",
+      "description": "Power a room off using Roomie's own off resolution for that room (the 'ActivityOff' press). Powering off a room that is already off is a no-op reported with was_already_off=true, not an error. Confirm with roomie_get_room.",
+      "write": true,
+      "timeout_seconds": 30,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Room name (case-insensitive; a unique partial name works), room UUID, or the Indigo device id of the room's device."
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "press_button",
+      "description": "Send a symbolic remote button to a room; Roomie resolves it against the room's current activity and dispatches to the right device (volume to the receiver, transport to the player, and so on). count (1-25) fires that many back-to-back taps, e.g. relative volume. digits tunes a channel and applies to the Channel button only. hold_ms (1-10000) holds the button and auto-releases, e.g. a long volume ramp. activity resolves the button against another of the room's activities. Fails with a conflict when the room is off (nothing to control) or when the current activity has no binding for the button; roomie_get_capabilities shows what is supported.",
+      "write": true,
+      "timeout_seconds": 30,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "description": "Room name (case-insensitive; a unique partial name works), room UUID, or the Indigo device id of the room's device."
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "Power",
+              "PowerOff",
+              "PowerToggle",
+              "ActivityOff",
+              "ActivityPowerOff",
+              "Activity1",
+              "Activity2",
+              "Activity3",
+              "Activity4",
+              "Activity5",
+              "Activity6",
+              "Activity7",
+              "Activity8",
+              "VolumeUp",
+              "VolumeDown",
+              "VolumeMute",
+              "VolumeMuteToggle",
+              "ChannelUp",
+              "ChannelDown",
+              "ChannelPrevious",
+              "ChannelEnter",
+              "Channel",
+              "Play",
+              "Pause",
+              "PlayPause",
+              "Stop",
+              "Record",
+              "FastForward",
+              "Rewind",
+              "SkipForward",
+              "SkipBackward",
+              "NextTrack",
+              "PreviousTrack",
+              "Replay",
+              "Advance",
+              "Up",
+              "Down",
+              "Left",
+              "Right",
+              "Select",
+              "Back",
+              "Menu",
+              "Home",
+              "Exit",
+              "Info",
+              "Guide",
+              "Digit0",
+              "Digit1",
+              "Digit2",
+              "Digit3",
+              "Digit4",
+              "Digit5",
+              "Digit6",
+              "Digit7",
+              "Digit8",
+              "Digit9",
+              "Dash",
+              "Clear",
+              "Enter",
+              "Red",
+              "Green",
+              "Yellow",
+              "Blue",
+              "PageUp",
+              "PageDown",
+              "DVR",
+              "OnDemand",
+              "Live",
+              "Audio",
+              "CC",
+              "Subtitle",
+              "AspectRatio",
+              "PictureMode",
+              "InputToggle",
+              "A",
+              "B",
+              "C",
+              "D"
+            ],
+            "description": "Roomie Universal Remote button name (lexicon version 1)."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 1,
+            "description": "Back-to-back taps, for relative steps such as volume."
+          },
+          "digits": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Channel number; Channel button only."
+          },
+          "hold_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Hold the button this long, then auto-release. Mutually exclusive with count > 1."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Optional: resolve the button against this activity (name or UUID, within the room) instead of the running one."
+          }
+        },
+        "required": [
+          "room",
+          "button"
+        ]
+      }
+    }
+  ]
+}

@@ -18,57 +18,24 @@ except ImportError:
     pass
 
 from roomie.client import RoomieClient, RoomieError, RoomieRequestFailed
+from roomie.lexicon import (
+    BUTTON_CATEGORIES,
+    CATEGORY_LABELS,
+    UnknownButton,
+    normalize_button,
+)
 from roomie.poller import RoomiePoller
 
 DEVICE_FOLDER_NAME = "Roomie Remote"
 DEVICE_NAME_TEMPLATE = "Roomie Remote - {room}"
 ACTIVITY_DEVICE_NAME_TEMPLATE = "Roomie Remote - {room} - {activity}"
 
-# Symbolic buttons from Roomie's Universal Remote API, grouped for the
-# Press Remote Button menu. Roomie resolves them against the room's
-# current activity; unsupported buttons return 404/422 at press time.
+# Symbolic buttons for the Press Remote Button menu come from the shared
+# lexicon (roomie/lexicon.py) — the same list the MCP press_button tool uses.
+# Roomie resolves them against the room's current activity; unsupported
+# buttons return 409/422 at press time.
 BUTTON_GROUPS = [
-    ("Power", ["Power", "PowerOn", "PowerOff"]),
-    (
-        "Activity",
-        ["ActivityOff"] + [f"Activity{n}" for n in range(1, 9)],
-    ),
-    ("Volume", ["VolumeUp", "VolumeDown", "Mute"]),
-    ("Channel", ["ChannelUp", "ChannelDown", "Channel"]),
-    (
-        "Transport",
-        [
-            "Play",
-            "Pause",
-            "Stop",
-            "Rewind",
-            "FastForward",
-            "SkipBack",
-            "SkipForward",
-            "Record",
-        ],
-    ),
-    (
-        "Cursor / Navigation",
-        [
-            "Up",
-            "Down",
-            "Left",
-            "Right",
-            "Select",
-            "Back",
-            "Exit",
-            "Home",
-            "Menu",
-            "Info",
-            "Guide",
-            "PageUp",
-            "PageDown",
-        ],
-    ),
-    ("Numeric", [str(n) for n in range(10)] + ["Dot", "Enter"]),
-    ("Color", ["Red", "Green", "Yellow", "Blue"]),
-    ("Extended", ["Input", "Eject", "Search", "Settings"]),
+    (CATEGORY_LABELS[category], names) for category, names in BUTTON_CATEGORIES
 ]
 
 SEPARATOR_VALUE = "-1"
@@ -87,6 +54,7 @@ class Plugin(indigo.PluginBase):
         self._devices_by_room = {}  # room_uuid -> set of roomieRoom device ids
         self._activity_devices_by_room = {}  # room_uuid -> set of roomieActivity ids
         self._force_full = False
+        self._tool_dispatcher = None  # MCP provider, built lazily on first call
 
     ########################################
     # Lifecycle
@@ -98,6 +66,12 @@ class Plugin(indigo.PluginBase):
             self._build_client_from_prefs(),
             poll_interval=float(self.pluginPrefs.get("pollInterval", 5)),
         )
+        # Tell the Indigo MCP Server (if installed) to re-read our
+        # mcp-manifest.json. Harmless no-op when nobody subscribes.
+        try:
+            indigo.server.broadcastToSubscribers("mcp_tools_updated")
+        except Exception as e:
+            self.logger.debug(f"mcp_tools_updated broadcast failed: {e}")
 
     def shutdown(self):
         self.logger.debug("shutdown called")
@@ -261,8 +235,14 @@ class Plugin(indigo.PluginBase):
                         "(the Roomie API rejects smaller delays)."
                     )
         elif type_id == "pressButton":
-            if values_dict.get("button", SEPARATOR_VALUE) == SEPARATOR_VALUE:
+            button = values_dict.get("button", SEPARATOR_VALUE)
+            if button == SEPARATOR_VALUE:
                 errors["button"] = "Choose a button (separators are not buttons)."
+            else:
+                try:
+                    normalize_button(button)
+                except UnknownButton as exc:
+                    errors["button"] = f"{exc}."
             count = values_dict.get("count", "").strip()
             if count and self._validate_int(count, 1, 25) is None:
                 errors["count"] = "Taps must be between 1 and 25."
@@ -375,7 +355,13 @@ class Plugin(indigo.PluginBase):
             self.logger.error(f"{dev.name}: power off failed: {exc}")
 
     def press_button(self, action, dev, caller_waiting_for_result=False):
-        button = action.props.get("button", "")
+        try:
+            button = normalize_button(action.props.get("button", ""))
+        except UnknownButton as exc:
+            self.logger.error(
+                f"{dev.name}: {exc} — re-select the button in the action config"
+            )
+            return
         count = int(action.props.get("count") or 1)
         digits = action.props.get("digits", "").strip() or None
         room_uuid = dev.pluginProps.get("roomUuid")
@@ -445,6 +431,104 @@ class Plugin(indigo.PluginBase):
             self.logger.error(
                 f"{dev.name}: {'start' if turn_on else 'power off'} failed: {exc}"
             )
+
+    ########################################
+    # MCP tool provider (Indigo MCP Server plugin)
+    ########################################
+
+    def handle_mcp_tool_invoke(self, action, dev=None, caller_waiting_for_result=True):
+        """
+        Called cross-plugin by the Indigo MCP Server (com.vtmikel.mcp_server)
+        via executeAction. The bare tool name and a JSON-string arguments
+        payload arrive in action.props; the reply is always a JSON-string
+        envelope (see mcp_api.tool_dispatcher). Everything under mcp_api/ is
+        imported lazily here so a bug in tool code can never affect plugin
+        startup for users without the MCP Server.
+        """
+        try:
+            if self._tool_dispatcher is None:
+                from mcp_api.tool_dispatcher import ToolDispatcher
+                from mcp_api.tool_service import RoomieToolService
+
+                self._tool_dispatcher = ToolDispatcher(
+                    RoomieToolService(
+                        poller=self._poller,
+                        client_factory=self._client,
+                        bridge=self._indigo_bridge(),
+                        plugin_version=self.pluginVersion,
+                        prefs=self.pluginPrefs,
+                    )
+                )
+        except Exception as e:
+            self.logger.exception("Failed to initialize the MCP tool dispatcher")
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error": {
+                        "type": "internal",
+                        "message": f"MCP tool dispatcher failed to initialize: {e}",
+                    },
+                }
+            )
+        tool = action.props.get("tool", "")
+        arguments = action.props.get("arguments", "{}")
+        return self._tool_dispatcher.dispatch(tool, arguments)
+
+    def _indigo_bridge(self):
+        """The Indigo-side lookups the (indigo-free) tool service needs."""
+        from mcp_api.tool_service import IndigoBridge
+
+        def room_device_ids(room_uuid):
+            with self._dev_lock:
+                return sorted(self._devices_by_room.get(room_uuid, ()))
+
+        def activity_devices(room_uuid):
+            with self._dev_lock:
+                dev_ids = sorted(self._activity_devices_by_room.get(room_uuid, ()))
+            entries = []
+            for dev_id in dev_ids:
+                try:
+                    dev = indigo.devices[dev_id]
+                except KeyError:
+                    continue
+                entries.append(
+                    {
+                        "id": dev_id,
+                        "name": dev.name,
+                        "activity_uuid": dev.pluginProps.get("activityUuid", ""),
+                        "is_on": bool(dev.states.get("onOffState", False)),
+                    }
+                )
+            return entries
+
+        def room_uuid_for_device(dev_id):
+            with self._dev_lock:
+                for room_uuid, dev_ids in self._devices_by_room.items():
+                    if dev_id in dev_ids:
+                        return room_uuid
+            try:
+                dev = indigo.devices[dev_id]
+            except KeyError:
+                return None
+            if dev.deviceTypeId != "roomieRoom":
+                return None
+            return dev.pluginProps.get("roomUuid") or None
+
+        def device_counts():
+            with self._dev_lock:
+                rooms = sum(len(ids) for ids in self._devices_by_room.values())
+                activities = sum(
+                    len(ids) for ids in self._activity_devices_by_room.values()
+                )
+            return rooms, activities
+
+        return IndigoBridge(
+            room_device_ids=room_device_ids,
+            activity_devices=activity_devices,
+            room_uuid_for_device=room_uuid_for_device,
+            schedule_refresh=self._schedule_refresh,
+            device_counts=device_counts,
+        )
 
     ########################################
     # Menu items

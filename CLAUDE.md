@@ -75,13 +75,22 @@ curl "http://<roomie-controller>:47147/api/v1/activities" | python3 -m json.tool
 ## Architecture
 
 ```
-Roomie Remote.indigoPlugin/Contents/Server Plugin/
-  plugin.py        # Indigo entry point: lifecycle, ConfigUIs, actions, menus,
-                   # automatic room-device creation, poll-outcome application
-  roomie/          # Indigo-free core (NO indigo imports — unit-testable)
-    client.py      # RoomieClient: HTTP + envelope parsing + typed exceptions
-    models.py      # Room/Activity dataclasses; tolerant, presence-tested parsing
-    poller.py      # RoomiePoller: diffing, backoff, caches, wake event
+Roomie Remote.indigoPlugin/Contents/
+  Resources/mcp-manifest.json   # MCP Server provider manifest (8 roomie_* tools)
+  Server Plugin/
+    plugin.py        # Indigo entry point: lifecycle, ConfigUIs, actions, menus,
+                     # automatic room-device creation, poll-outcome application,
+                     # handle_mcp_tool_invoke + IndigoBridge for the MCP tools
+    roomie/          # Indigo-free core (NO indigo imports — unit-testable)
+      client.py      # RoomieClient: HTTP + envelope parsing + typed exceptions
+      models.py      # Room/Activity dataclasses; tolerant, presence-tested parsing
+      poller.py      # RoomiePoller: diffing, backoff, caches, wake event
+      lexicon.py     # The 78-button Universal Remote lexicon + legacy aliases
+    mcp_api/         # Indigo-free MCP tool provider (NO indigo imports)
+      tool_dispatcher.py  # name -> handler table, JSON envelope, ToolError mapping
+      tool_service.py     # RoomieToolService: the 8 tools; IndigoBridge callables
+      resolvers.py        # room / activity resolution (name | UUID | Indigo id)
+      errors.py           # ToolError(validation|not_found|conflict|internal)
 ```
 
 Rules that keep this maintainable:
@@ -100,6 +109,45 @@ Rules that keep this maintainable:
 - Device auto-creation: rooms are created as devices when first seen (UUID
   not in the `knownRoomUuids` plugin pref). Deleted devices stay deleted;
   the "Create Devices for All Rooms" menu item recreates unconditionally.
+- **One button lexicon.** `roomie/lexicon.py` is the only list of remote
+  button names; the Press Remote Button menu and the MCP `press_button` enum
+  are both generated from it (`tests/test_manifest_sync.py` fails on drift).
+  `normalize_button` maps the pre-2026.9.0 names (`Mute`, `SkipBack`,
+  `0`–`9`, `Input`) to lexicon names so saved actions keep working. If Roomie
+  bumps `lexicon_version` (visible in `/remote/capabilities`), extend the
+  lexicon and regenerate the manifest enum.
+
+## MCP tool provider
+
+The plugin contributes tools to the Indigo MCP Server plugin
+(`com.vtmikel.mcp_server` ≥ 2026.8.1) via its provider contract
+(`docs/mcp-provider-manifest.md` in the `indigo-mcp-server` repo; Auto Lights
+is the other provider). Three pieces: `Contents/Resources/mcp-manifest.json`
+(the tool list + JSON Schemas, served to AI clients verbatim), the hidden
+`mcp_tool_invoke` action in `Actions.xml` → `Plugin.handle_mcp_tool_invoke`,
+and the `mcp_tools_updated` broadcast in `startup()`.
+
+- **Dispatch shape.** The MCP Server calls
+  `executeAction("mcp_tool_invoke", props={"tool": <bare name>, "arguments": <JSON string>}, waitUntilDone=True)`
+  and expects a JSON-string envelope back — never a raised exception.
+  Arguments cross as a JSON string because `indigo.Dict` cannot hold `null`.
+- **Lazy import.** `mcp_api` is imported inside `handle_mcp_tool_invoke` on
+  first use, so tool bugs cannot affect startup for users without the MCP
+  Server. `_indigo_bridge()` is the only place the tools touch Indigo: it
+  hands `RoomieToolService` callables for the device registries (under
+  `_dev_lock`) and `_schedule_refresh`.
+- **Threading.** Handlers run on the plugin's callback thread (serialized
+  with ConfigUI callbacks and actions). Reads default to poller caches; live
+  tools make at most two bounded HTTP calls, each capped by the request
+  timeout pref. Manifest timeouts: cache reads 15 s, live reads 20 s, writes
+  30 s.
+- **Writes return immediately** and call `_schedule_refresh()` (same
+  ~1.5 s wake the actions use) so device states converge; results carry a
+  `note` telling the AI to confirm with `roomie_get_room`.
+- **Tool naming.** The MCP Server enforces the `roomie_` prefix; through the
+  homelab ContextForge gateway the same tools surface as `indigo-roomie-…`.
+  Adding a tool = add the method to `RoomieToolService`, the table entry in
+  `ToolDispatcher`, the manifest entry, and a `tests/test_mcp_tools.py` case.
 
 ## Roomie Local Network Control API cheat sheet
 
@@ -119,16 +167,30 @@ Rules that keep this maintainable:
   `+`/`-` UUID suffixes and "(On)"/"(Off)" names.
 - `POST /runactivity` — `{"au": uuid, "ts": "on"|"off" (optional), "de": delay}`;
   `de` must be ≥ 1.0 seconds (API rejects smaller).
-- `POST /remote/press` — `{"button": <symbolic>, "roomuuid": ..., "count": n, "digits": "..."}`.
-  Roomie resolves symbolic buttons (`Play`, `VolumeUp`, `ActivityOff`,
-  `Activity1..8`, ...) against the room's current activity.
-  Errors: 404 unknown room/button, 409 no activity running, 422 button
-  unsupported in the current activity.
-- The production controller is the House iPad — OPNsense Kea reservation
-  `10.66.0.84` / hostname `House-iPad` (MAC `c4:12:34:f0:a5:f3`); it must
-  have Roomie foregrounded for the API to answer. Second power-off of an
-  already-off room returns success (not the documented 409) — the 409
-  handling in `power_off_room` is defensive.
+- `POST /remote/press` — `{"button": <lexicon name>, "roomuuid": ...,
+  "activityuuid": <override>, "action": "tap"|"press"|"release"|"repeat",
+  "count": n (tap burst, max 25), "digits": "..." (Channel only),
+  "hold_ms": n (press only; server auto-releases), "session": ... (release)}`.
+  Roomie resolves the button against the room's current activity. Reply `da`:
+  `{button, role, deviceuuid, command, dispatched[, session]}`.
+  Errors: 400 unknown button, 404 unknown room/activity, 409 no activity
+  running, 422 button unsupported in the current activity.
+- `GET /remote/capabilities?roomuuid=|roomname=|activityuuid=` — resolution
+  for **every** lexicon button (`null` = unsupported) with `category`, `role`,
+  `command`/`deviceuuid` or `activityuuid`/`activityname`, plus
+  `lexicon_version` (1 as of 2026-09). 409 when the room is off. This is the
+  authoritative button list — `roomie/lexicon.py` was captured from it.
+- `GET /devices` — every device Roomie knows (86 live), most of them Indigo
+  devices imported via HomeKit with an empty `address`; only network AV gear
+  carries `address`/`port`.
+- **No configuration editing.** The API is read + execute only (GET/POST;
+  no create/update/delete for rooms, activities or devices).
+- The production controller is the Roomie iPad on the switch (`gi20`) at
+  `roomie-controller.home.mikelamoureux.net` → `10.66.0.54` (the plugin is
+  configured with the hostname); it must have Roomie foregrounded for the API
+  to answer, and the plugin log shows occasional 5 s read timeouts from it.
+  Second power-off of an already-off room returns success (not the
+  documented 409) — the 409 handling in `power_off_room` is defensive.
 
 ## Testing conventions
 
@@ -136,6 +198,13 @@ Rules that keep this maintainable:
   into `sys.modules` **before** adding `Server Plugin` to `sys.path`.
 - `test_client.py` injects `FakeSession` (scripted responses + recorded
   calls); `test_poller.py`/`test_plugin.py` inject `FakeClient`.
+- `test_mcp_tools.py` drives `ToolDispatcher.dispatch()` exactly like
+  `handle_mcp_tool_invoke` (JSON in, JSON envelope out) with its own richer
+  `FakeClient` and an `IndigoBridge` of lambdas; `test_manifest_sync.py` is
+  the manifest ↔ dispatcher ↔ lexicon ↔ Info.plist drift guard;
+  `TestMcpProviderWiring` in `test_plugin.py` covers the real plugin entry
+  point through the indigo stub (which now records `indigo.server`
+  broadcasts in `tests.conftest.broadcasts`).
 - The stub `Device` records `updateStatesOnServer` / `setErrorStateOnServer` /
   `updateStateImageOnServer` calls for assertions; `indigo.device.create`
   appends to `tests.conftest.created_devices`.

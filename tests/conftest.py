@@ -126,6 +126,13 @@ class IndigoDict(dict):
 
 indigo_stub.Dict = IndigoDict
 
+# indigo.server.broadcastToSubscribers — recorded so tests can assert the
+# MCP provider's startup broadcast.
+broadcasts = []
+indigo_stub.server = types.SimpleNamespace(
+    broadcastToSubscribers=lambda key, *args: broadcasts.append(key)
+)
+
 
 class _DummyHandler(logging.Handler):
     def __init__(self, baseFilename="/tmp/Logs/plugin.log"):
@@ -184,4 +191,5 @@ def fake_indigo():
     indigo_stub.devices.clear()
     del indigo_stub.devices.folders[:]
     created_devices.clear()
+    broadcasts.clear()
     yield indigo_stub

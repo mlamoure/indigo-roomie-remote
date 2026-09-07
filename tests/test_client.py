@@ -39,8 +39,8 @@ class FakeSession:
             raise response
         return response
 
-    def get(self, url, timeout=None):
-        self.calls.append(("GET", url, None, timeout))
+    def get(self, url, timeout=None, params=None):
+        self.calls.append(("GET", url, params, timeout))
         return self._next()
 
     def post(self, url, json=None, timeout=None):
@@ -149,3 +149,34 @@ class TestPayloads:
             "count": 3,
             "digits": "42",
         }
+
+    def test_press_hold_and_activity_override(self):
+        session = FakeSession().queue(envelope({"session": "S1"}))
+        make_client(session).press(
+            "VolumeUp", "ROOM-1", action="press", hold_ms=1500, activityuuid="A9"
+        )
+        assert session.calls[0][2] == {
+            "button": "VolumeUp",
+            "roomuuid": "ROOM-1",
+            "action": "press",
+            "hold_ms": 1500,
+            "activityuuid": "A9",
+        }
+
+    def test_get_capabilities_by_room_sends_query_params(self):
+        session = FakeSession().queue(envelope({"buttons": {}}))
+        make_client(session).get_capabilities(roomuuid="ROOM-1")
+        method, url, params, _ = session.calls[0]
+        assert method == "GET"
+        assert url.endswith("/api/v1/remote/capabilities")
+        assert params == {"roomuuid": "ROOM-1"}
+
+    def test_get_capabilities_by_activity_omits_empty_params(self):
+        session = FakeSession().queue(envelope({"buttons": {}}))
+        make_client(session).get_capabilities(activityuuid="A1", roomuuid=None)
+        assert session.calls[0][2] == {"activityuuid": "A1"}
+
+    def test_plain_get_has_no_params(self):
+        session = FakeSession().queue(envelope([]))
+        make_client(session).get_rooms()
+        assert session.calls[0][2] is None
