@@ -87,18 +87,58 @@ class RoomieClient:
         roomuuid: str,
         count: int = 1,
         digits: Optional[str] = None,
+        action: Optional[str] = None,
+        hold_ms: Optional[int] = None,
+        activityuuid: Optional[str] = None,
     ) -> Any:
+        """Universal Remote press. `action` is tap (default) | press | release |
+        repeat; `hold_ms` auto-releases a `press` server-side; `activityuuid`
+        overrides the room's current activity for button resolution."""
         payload: dict[str, Any] = {"button": button, "roomuuid": roomuuid}
         if count != 1:
             payload["count"] = int(count)
         if digits is not None:
             payload["digits"] = digits
+        if action is not None:
+            payload["action"] = action
+        if hold_ms is not None:
+            payload["hold_ms"] = int(hold_ms)
+        if activityuuid is not None:
+            payload["activityuuid"] = activityuuid
         return self._request("POST", "/remote/press", payload)
 
-    def _request(self, method: str, path: str, payload: Optional[dict] = None) -> Any:
+    def get_capabilities(
+        self,
+        roomuuid: Optional[str] = None,
+        activityuuid: Optional[str] = None,
+        roomname: Optional[str] = None,
+    ) -> Any:
+        """Button resolution for every lexicon button, scoped to the addressed
+        room's current activity (or an explicit activity). 409 when the room
+        is off."""
+        params = {
+            key: value
+            for key, value in (
+                ("roomuuid", roomuuid),
+                ("activityuuid", activityuuid),
+                ("roomname", roomname),
+            )
+            if value
+        }
+        return self._request("GET", "/remote/capabilities", params=params)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: Optional[dict] = None,
+        params: Optional[dict] = None,
+    ) -> Any:
         url = self.base_url + path
         try:
-            if method == "GET":
+            if method == "GET" and params:
+                response = self._session.get(url, params=params, timeout=self.timeout)
+            elif method == "GET":
                 response = self._session.get(url, timeout=self.timeout)
             else:
                 response = self._session.post(url, json=payload, timeout=self.timeout)

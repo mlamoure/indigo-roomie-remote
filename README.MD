@@ -94,10 +94,14 @@ state matching needed.
   a Roomie API requirement).
 - **Power Off Room** — asks Roomie to resolve the correct off behavior for
   the room. A room that is already off is a no-op, not an error.
-- **Press Remote Button** — symbolic buttons grouped by function (power,
-  activity, volume, channel, transport, cursor, numeric, color, extended),
-  with optional repeat taps (1–25) and channel digits. Buttons are resolved
-  against the room's current activity by Roomie.
+- **Press Remote Button** — Roomie's Universal Remote lexicon (78 symbolic
+  buttons grouped by category: power, activity, volume, channel, transport,
+  cursor, numeric, color, extended), with optional repeat taps (1–25) and
+  channel digits. Buttons are resolved against the room's current activity
+  by Roomie. Actions saved with the pre-2026.9.0 names (`Mute`, `SkipBack`,
+  `0`–`9`, `Input`) keep working; `PowerOn`, `Dot`, `Eject`, `Search` and
+  `Settings` had no Roomie equivalent and now log an error asking you to
+  re-select the button.
 - **Run Activity by UUID** — plugin-level action for scripting and edge cases
   (activities in rooms without an Indigo device). Supports the toggle-state
   override and delay.
@@ -115,6 +119,33 @@ state matching needed.
 - **Force Refresh All** — immediate poll with a full (non-diffed) state push.
 - **Toggle Debug Logging** — temporary debug logging without opening the
   config dialog.
+
+## MCP tools (AI assistants)
+
+If the [Indigo MCP Server](https://github.com/mlamoure/indigo-mcp-server)
+plugin (v2026.8.1 or later) is installed, this plugin contributes eight
+`roomie_*` tools to it so AI assistants can see and control Roomie through
+Indigo. Nothing changes for installations without the MCP Server: the
+manifest is inert data and the tool code is only loaded when the MCP Server
+calls it.
+
+| Tool | Writes | What it does |
+|---|---|---|
+| `roomie_list_rooms` | no | Every room with on/off, current activity, and linked Indigo device ids (`refresh=true` fetches live). |
+| `roomie_get_room` | no | One room in full: activities, toggle and off activities, linked Indigo room/activity devices. |
+| `roomie_get_capabilities` | no | Which remote buttons the room's current activity supports, grouped by category, with the device each drives. |
+| `roomie_list_devices` | no | Roomie's hardware inventory (network AV gear by default; `include_all=true` for everything). |
+| `roomie_get_status` | no | Controller reachability, backoff, last poll, cache sizes; `test_connection=true` probes live. |
+| `roomie_start_activity` | yes | Start an activity by name or UUID in a room (toggle activities take `toggle_state`). |
+| `roomie_power_off_room` | yes | Power a room off; already-off is a reported no-op. |
+| `roomie_press_button` | yes | Send a lexicon button: tap bursts (`count`), channel `digits`, held buttons (`hold_ms`), activity override. |
+
+Rooms are addressed by name (case-insensitive, unique partial names work),
+room UUID, or the Indigo id of the room's device; activities by name or UUID
+within that room. Ambiguous names come back as an error listing the matches.
+Write tools return immediately and Indigo device states catch up within a
+poll; the MCP Server's "Allow plugin-provided tools to make changes" setting
+gates them.
 
 ## Triggers
 
