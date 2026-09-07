@@ -178,8 +178,11 @@ and the `mcp_tools_updated` broadcast in `startup()`.
 - `GET /remote/capabilities?roomuuid=|roomname=|activityuuid=` — resolution
   for **every** lexicon button (`null` = unsupported) with `category`, `role`,
   `command`/`deviceuuid` or `activityuuid`/`activityname`, plus
-  `lexicon_version` (1 as of 2026-09). 409 when the room is off. This is the
-  authoritative button list — `roomie/lexicon.py` was captured from it.
+  `lexicon_version` (1 as of 2026-09). The docs say 409 when the room is off;
+  the live controller instead resolves against "System Off" and reports only
+  the activity buttons as supported (verified 2026-09-07) — the tool handles
+  both. This is the authoritative button list — `roomie/lexicon.py` was
+  captured from it.
 - `GET /devices` — every device Roomie knows (86 live), most of them Indigo
   devices imported via HomeKit with an empty `address`; only network AV gear
   carries `address`/`port`.
