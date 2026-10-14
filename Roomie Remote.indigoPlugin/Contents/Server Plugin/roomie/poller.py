@@ -63,7 +63,10 @@ class RoomiePoller:
     def next_delay(self) -> float:
         if self._failures == 0:
             return self.poll_interval
-        return min(self.poll_interval * (2**self._failures), self.max_backoff)
+        # Cap the exponent, not just the result: 2**1024 overflows float, so
+        # an uncapped exponent crashes after ~17 h of failures at max_backoff.
+        exponent = min(self._failures, 16)
+        return min(self.poll_interval * (2**exponent), self.max_backoff)
 
     @property
     def consecutive_failures(self) -> int:

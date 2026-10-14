@@ -174,6 +174,18 @@ class TestBackoffAndReachability:
             poller.poll_once()
             assert poller.next_delay() == delay
 
+    def test_backoff_survives_long_outage(self):
+        # 2**1024 cannot convert to float: before the exponent cap, ~17 h of
+        # failures at the 60 s cap made next_delay() raise OverflowError and
+        # crash runConcurrentThread on every pass.
+        client = FakeClient(rooms=[ROOM_ON])
+        poller = make_poller(client, poll_interval=5.0, max_backoff=60.0)
+        client.fail_rooms = True
+        for _ in range(1100):
+            poller.poll_once()
+        assert poller.consecutive_failures == 1100
+        assert poller.next_delay() == 60.0
+
     def test_reachability_changed_only_on_edges(self):
         client = FakeClient(rooms=[ROOM_ON])
         poller = make_poller(client)
