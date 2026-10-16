@@ -122,11 +122,11 @@ state matching needed.
 
 ## MCP tools (AI assistants)
 
-If the [Indigo MCP Server](https://github.com/mlamoure/indigo-mcp-server)
-plugin (v2026.8.1 or later) is installed, this plugin contributes eight
+If the [MCP Advanced Tools](https://github.com/mlamoure/indigo-mcp-server)
+plugin (formerly MCP Server; v2026.8.1 or later) is installed, this plugin contributes eight
 `roomie_*` tools to it so AI assistants can see and control Roomie through
-Indigo. Nothing changes for installations without the MCP Server: the
-manifest is inert data and the tool code is only loaded when the MCP Server
+Indigo. Nothing changes for installations without MCP Advanced Tools: the
+manifest is inert data and the tool code is only loaded when MCP Advanced Tools
 calls it.
 
 | Tool | Writes | What it does |
@@ -144,7 +144,7 @@ Rooms are addressed by name (case-insensitive, unique partial names work),
 room UUID, or the Indigo id of the room's device; activities by name or UUID
 within that room. Ambiguous names come back as an error listing the matches.
 Write tools return immediately and Indigo device states catch up within a
-poll; the MCP Server's "Allow plugin-provided tools to make changes" setting
+poll; MCP Advanced Tools' "Allow plugin-provided tools to make changes" setting
 gates them.
 
 ## Triggers

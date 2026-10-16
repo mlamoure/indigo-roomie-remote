@@ -76,7 +76,7 @@ curl "http://<roomie-controller>:47147/api/v1/activities" | python3 -m json.tool
 
 ```
 Roomie Remote.indigoPlugin/Contents/
-  Resources/mcp-manifest.json   # MCP Server provider manifest (8 roomie_* tools)
+  Resources/mcp-manifest.json   # MCP Advanced Tools provider manifest (8 roomie_* tools)
   Server Plugin/
     plugin.py        # Indigo entry point: lifecycle, ConfigUIs, actions, menus,
                      # automatic room-device creation, poll-outcome application,
@@ -119,7 +119,7 @@ Rules that keep this maintainable:
 
 ## MCP tool provider
 
-The plugin contributes tools to the Indigo MCP Server plugin
+The plugin contributes tools to the MCP Advanced Tools plugin
 (`com.vtmikel.mcp_server` ≥ 2026.8.1) via its provider contract
 (`docs/mcp-provider-manifest.md` in the `indigo-mcp-server` repo; Auto Lights
 is the other provider). Three pieces: `Contents/Resources/mcp-manifest.json`
@@ -127,7 +127,7 @@ is the other provider). Three pieces: `Contents/Resources/mcp-manifest.json`
 `mcp_tool_invoke` action in `Actions.xml` → `Plugin.handle_mcp_tool_invoke`,
 and the `mcp_tools_updated` broadcast in `startup()`.
 
-- **Dispatch shape.** The MCP Server calls
+- **Dispatch shape.** MCP Advanced Tools calls
   `executeAction("mcp_tool_invoke", props={"tool": <bare name>, "arguments": <JSON string>}, waitUntilDone=True)`
   and expects a JSON-string envelope back — never a raised exception.
   Arguments cross as a JSON string because `indigo.Dict` cannot hold `null`.
@@ -144,7 +144,7 @@ and the `mcp_tools_updated` broadcast in `startup()`.
 - **Writes return immediately** and call `_schedule_refresh()` (same
   ~1.5 s wake the actions use) so device states converge; results carry a
   `note` telling the AI to confirm with `roomie_get_room`.
-- **Tool naming.** The MCP Server enforces the `roomie_` prefix; through the
+- **Tool naming.** MCP Advanced Tools enforces the `roomie_` prefix; through the
   homelab ContextForge gateway the same tools surface as `indigo-roomie-…`.
   Adding a tool = add the method to `RoomieToolService`, the table entry in
   `ToolDispatcher`, the manifest entry, and a `tests/test_mcp_tools.py` case.

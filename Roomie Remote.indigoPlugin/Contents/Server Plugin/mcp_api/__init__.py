@@ -1,7 +1,7 @@
 """
 MCP tool provider API for the Roomie Remote plugin.
 
-Exposes room/activity/remote-control tools to the Indigo MCP Server plugin
+Exposes room/activity/remote-control tools to the MCP Advanced Tools plugin
 (com.vtmikel.mcp_server) via the hidden `mcp_tool_invoke` action declared in
 Actions.xml and advertised in Contents/Resources/mcp-manifest.json.
 
